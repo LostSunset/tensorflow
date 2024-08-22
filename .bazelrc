@@ -225,6 +225,8 @@ build:cuda --repo_env=HERMETIC_CUDNN_VERSION="8.9.7.29"
 # This flag is needed to include hermetic CUDA libraries for bazel tests.
 test:cuda --@local_config_cuda//cuda:include_hermetic_cuda_libs=true
 
+build:cuda_wheel --@local_config_cuda//cuda:include_hermetic_cuda_libs=false
+
 # CUDA: This config refers to building CUDA op kernels with clang.
 build:cuda_clang --config=cuda
 build:cuda_clang --@local_config_cuda//:cuda_compiler=clang
@@ -791,12 +793,14 @@ test:linux_cpu_pycpp_test_filters --test_tag_filters=-no_oss,-oss_excluded,-oss_
 test:linux_cpu_pycpp_test_filters --build_tag_filters=-no_oss,-oss_excluded,-oss_serial,-gpu,-tpu,-benchmark-test,-v1only
 test:linux_cpu_pycpp_test_filters --test_lang_filters=cc,py --test_size_filters=small,medium
 test:linux_cpu_pycpp_test --config=linux_cpu_pycpp_test_filters -- //tensorflow/... -//tensorflow/compiler/tf2tensorrt/... -//tensorflow/core/tpu/... -//tensorflow/lite/... -//tensorflow/tools/toolchains/...
+test:linux_cpu_pycpp_api_test --config=linux_cpu_pycpp_test_filters --config=cuda_wheel -- //tensorflow/tools/pip_package/...
 
 # LINUX CUDA PYCPP:
 test:linux_cuda_pycpp_test_filters --test_tag_filters=-no_oss,-oss_excluded,-oss_serial,-benchmark-test,-v1only,gpu,-no_gpu,-no_gpu_presubmit,-no_cuda11
 test:linux_cuda_pycpp_test_filters --build_tag_filters=-no_oss,-oss_excluded,-oss_serial,-benchmark-test,-v1only,gpu,-no_gpu,-no_gpu_presubmit,-no_cuda11
 test:linux_cuda_pycpp_test_filters --test_lang_filters=cc,py --test_size_filters=small,medium
 test:linux_cuda_pycpp_test --config=linux_cuda_pycpp_test_filters -- //tensorflow/... -//tensorflow/compiler/tf2tensorrt/... -//tensorflow/core/tpu/... -//tensorflow/lite/... -//tensorflow/tools/toolchains/...
+test:linux_cuda_pycpp_api_test --config=linux_cuda_pycpp_test_filters --config=cuda_wheel -- //tensorflow/tools/pip_package/...
 
 # LINUX ARM64 PYCPP
 # In Linux Arm64 presubmit/continuous build, we cross-compile the binaries on
@@ -821,6 +825,7 @@ test:macos_arm64_pycpp_test_filters --test_tag_filters=-no_oss,-oss_excluded,-os
 test:macos_arm64_pycpp_test_filters --build_tag_filters=-no_oss,-oss_excluded,-oss_serial,-no_oss_py39,-no_oss_py310,-nomac,-no_mac,-mac_excluded,-v1only,-gpu,-tpu,-benchmark-test,-no_mac_arm64,-no_aarch64
 test:macos_arm64_pycpp_test_filters --test_lang_filters=cc,py --test_size_filters=small,medium
 test:macos_arm64_pycpp_test --config=macos_arm64_pycpp_test_filters -- //tensorflow/... -//tensorflow/compiler/tf2tensorrt/... -//tensorflow/core/tpu/... -//tensorflow/lite/... -//tensorflow/tools/toolchains/... -//tensorflow/go/... -//tensorflow/java/... -//tensorflow/compiler/aot/... -//tensorflow/core/kernels/image:resize_bicubic_op_test
+test:macos_arm64_pycpp_api_test --config=macos_arm64_pycpp_test_filters --config=cuda_wheel -- //tensorflow/tools/pip_package/...
 # MACOS X86 PYCPP
 # These are defined as build configs so that we can run a build only job. See
 # the note under "ARM64 PYCPP" for more details.
@@ -837,7 +842,7 @@ test:windows_x86_cpu_pycpp_test_filters --build_tag_filters=-no_windows,-windows
 test:windows_x86_cpu_pycpp_test_filters --test_lang_filters=cc,py --test_size_filters=small,medium --test_timeout="300,450,1200,3600"
 test:windows_x86_cpu_pycpp_test_opts --copt=/d2ReducedOptimizeHugeFunctions --host_copt=/d2ReducedOptimizeHugeFunctions --dynamic_mode=off --build_tests_only
 test:windows_x86_cpu_pycpp_test --config=windows_x86_cpu_pycpp_test_opts --config=windows_x86_cpu_pycpp_test_filters -- //tensorflow/... -//tensorflow/java/... -//tensorflow/lite/... -//tensorflow/compiler/...
-
+test:windows_x86_cpu_pycpp_api_test --config=windows_x86_cpu_pycpp_test_opts --config=windows_x86_cpu_pycpp_test_filters --config=cuda_wheel -- //tensorflow/tools/pip_package/...
 # END TF TEST SUITE OPTIONS
 
 # START CROSS-COMPILE CONFIGS
