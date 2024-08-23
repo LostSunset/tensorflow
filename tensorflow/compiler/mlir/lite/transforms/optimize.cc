@@ -441,6 +441,18 @@ bool CanOptimizeIdentitySliceOp(Value input, Attribute begin, Attribute size) {
   return true;
 }
 
+Value GetBiasMultiplier(Value binary_op, DenseFPElementsAttr base) {
+  OpBuilder builder(binary_op.getContext());
+  ShapedType shaped_type =
+      RankedTensorType::get({}, base.getType().getElementType());
+
+  float multiplier =
+      (llvm::isa<mlir::TFL::AddOp>(binary_op.getDefiningOp()) ? 1.0 : -1.0);
+
+  auto constant_attr = DenseFPElementsAttr::get(shaped_type, multiplier);
+  return builder.create<arith::ConstantOp>(binary_op.getLoc(), constant_attr);
+}
+
 // Expand Attribute 'a' to 4D with all 1s except 1 dimension.
 // Which dimension depends on 'is_depthwise' is true or false.
 ElementsAttr ExpandTo4DForConvImpl(Attribute a, bool is_depthwise) {
