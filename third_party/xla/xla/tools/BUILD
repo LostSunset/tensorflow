@@ -871,10 +871,10 @@ xla_test(
     name = "xla_gpu_compile_lib_test",
     srcs = ["xla_gpu_compile_lib_test.cc"],
     backend_tags = {
-        "gpu": ["requires-gpu-nvidia"] + if_google(["config-cuda-only"]),
+        "gpu_any": if_google(["config-cuda-only"]),
     },
     backends = [
-        "gpu",
+        "gpu_any",
     ],
     data = [
         ":data/add.hlo",

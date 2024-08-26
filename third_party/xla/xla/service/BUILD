@@ -827,7 +827,6 @@ cc_library(
     deps = [
         ":hlo_pass",
         "//xla/hlo/ir:hlo",
-        "//xla/service/spmd/shardy:constants",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:errors",
@@ -1745,11 +1744,8 @@ cc_library(
 xla_test(
     name = "compiler_test",
     srcs = ["compiler_test.cc"],
-    backend_tags = {
-        "gpu": if_google(["requires-gpu-nvidia"]),
-    },
     backends = [
-        "gpu",
+        "gpu_any",
         "cpu",
     ],
     deps = [
@@ -8483,18 +8479,6 @@ xla_cc_test(
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
         "@local_tsl//tsl/platform:test_main",
-    ],
-)
-
-xla_cc_test(
-    name = "propagate_original_value_test",
-    srcs = ["propagate_original_value_test.cc"],
-    deps = [
-        ":instruction_fusion",
-        "//xla:xla_data_proto_cc",
-        "//xla/tests:hlo_test_base",
-        "@com_google_absl//absl/strings:string_view",
-        "@com_google_googletest//:gtest_main",
     ],
 )
 
