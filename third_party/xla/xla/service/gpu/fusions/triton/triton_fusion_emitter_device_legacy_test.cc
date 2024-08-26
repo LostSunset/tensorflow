@@ -2318,6 +2318,58 @@ ENTRY e {
   EXPECT_TRUE(RunAndCompare(kHloText, ErrorSpec{/*aabs=*/2e-3, /*arel=*/2e-3}));
 }
 
+TEST_F(TritonGemmLevel2Test, BroadcastOfScalarWorksCorrectly) {
+  const std::string kHloText = R"(
+fusion {
+  p0 = f16[2,18]{1,0} parameter(0)
+  p1 = f16[256,2]{1,0} parameter(1)
+  d.1 = f16[18,256]{1,0} dot(f16[2,18]{1,0} p0, f16[256,2]{1,0} p1), lhs_contracting_dims={0}, rhs_contracting_dims={1}
+  p2 = f16[] parameter(2)
+  p3 = f16[] parameter(3)
+  multiply.2 = f16[] multiply(f16[] p2, f16[] p3)
+  broadcast.1 = f16[18,256]{1,0} broadcast(f16[] multiply.2), dimensions={}
+  ROOT multiply.3 = f16[18,256]{1,0} multiply(f16[18,256]{1,0} d.1, f16[18,256]{1,0} broadcast.1)
+}
+ENTRY e  {
+  p0.1 = f16[2,18]{1,0} parameter(0)
+  p1.1 = f16[256,2]{1,0} parameter(1)
+  p2.1 = f16[] parameter(2)
+  p3.1 = f16[] parameter(3)
+  ROOT %gemm_fusion_d.1 = f16[18,256]{1,0} fusion(f16[2,18]{1,0} p0.1, f16[256,2]{1,0} p1.1, f16[] p2.1, f16[] p3.1), kind=kCustom, calls=fusion, backend_config={"operation_queue_id":"0","wait_on_operation_queues":[],"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"32","block_n":"32","block_k":"16","split_k":"1","num_stages":"1","num_warps":"4","num_ctas":"1"}},"force_earliest_schedule":false}
+})";
+
+  TF_ASSERT_OK(CreateTritonIrAndFileCheckForDot(this, kHloText, "fusion", R"(
+        CHECK:      tt.dot
+        CHECK:      arith.mulf %{{.*}}, %{{.*}} : tensor<f16> 
+        CHECK:      tt.broadcast %{{.*}} : tensor<1x1xf16> -> tensor<32x32xf16>
+        CHECK:      arith.mulf %{{.*}}, %{{.*}} : tensor<32x32xf16>
+    )"));
+  const se::DeviceDescription dev_info =
+      backend().default_stream_executor()->GetDeviceDescription();
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> hlo_module,
+                          ParseAndReturnVerifiedModule(kHloText));
+  const HloFusionInstruction* triton_dot_fusion = Cast<HloFusionInstruction>(
+      hlo_module->entry_computation()->root_instruction());
+  llvm::LLVMContext llvm_ctx;
+  llvm::Module llvm_module("module", llvm_ctx);
+  mlir::MLIRContext mlir_context;
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto gpu_config, triton_dot_fusion->backend_config<GpuBackendConfig>());
+  const FusionBackendConfig& config = gpu_config.fusion_backend_config();
+  auto gemm_config = config.triton_gemm_config();
+  BlockLevelParameters block_level_parameters;
+  block_level_parameters.num_ctas = gemm_config.num_ctas();
+  block_level_parameters.num_warps = gemm_config.num_warps();
+  block_level_parameters.num_stages = gemm_config.num_stages();
+
+  TF_CHECK_OK(TritonWrapper("test_fn", triton_dot_fusion, GpuComputeComp(),
+                            dev_info, block_level_parameters, &llvm_module,
+                            mlir_context)
+                  .status());
+}
+
 TEST_F(TritonGemmLevel2Test, FuseConcatenation) {
   if (!SupportsBF16(GpuComputeComp())) {
     GTEST_SKIP() << "BF16 not supported.";
