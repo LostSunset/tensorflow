@@ -144,7 +144,6 @@ cc_library(
 tf_proto_library(
     name = "device_description_proto",
     srcs = ["device_description.proto"],
-    cc_api_version = 2,
     make_default_target_header_only = True,
     protodeps = ["//xla:autotune_results_proto"],
 )
@@ -660,7 +659,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:logging",
-        "@local_tsl//tsl/platform:platform_port",
     ],
 )
 

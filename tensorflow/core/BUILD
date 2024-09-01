@@ -16,7 +16,6 @@
 #     util/: General low-level TensorFlow-specific libraries
 #     framework/: Support for adding new ops & kernels
 #     example/: Wrappers to simplify access to Example proto
-#     //third_party/tensorflow/lite/kernels/shim: Template for writing ops supporting TF & TF Lite.
 # ":ops" - defines TensorFlow ops, but no implementations / kernels
 #     ops/: Standard ops
 #     user_ops/: User-supplied ops
@@ -160,7 +159,6 @@ package_group(
 tf_proto_library(
     name = "protos_all",
     srcs = [],
-    cc_api_version = 2,
     create_go_proto = False,
     make_default_target_header_only = True,
     protodeps = [
@@ -268,7 +266,7 @@ cc_library(
         # TODO(rmlarsen): Remove bfloat16.h once dependency in third_party/swift is updated.
         "//tensorflow/core/lib/bfloat16:bfloat16.h",
         "//tensorflow/core/lib/core:legacy_lib_core_headers",
-        "@local_tsl//tsl/lib/core:legacy_lib_core_headers",
+        "@local_xla//xla/tsl/lib/core:legacy_lib_core_headers",
         "//tensorflow/core/lib/gtl:legacy_lib_gtl_headers",
         "//tensorflow/core/lib/hash:legacy_lib_hash_all_headers",
         "//tensorflow/core/lib/histogram:legacy_lib_histogram_all_headers",
@@ -423,7 +421,6 @@ tf_cuda_library(
         "//tensorflow/core/util:framework_srcs",
         "//tensorflow/core/util:memmapped_file_system_hdrs",
         "//tensorflow/core/util/sparse:framework_group",
-        "//tensorflow/lite/kernels/shim:tf_headers",
         "@local_xla//xla/tsl/framework:allocator_hdrs",
         "@local_xla//xla/tsl/framework:cancellation_hdrs",
         "@local_xla//xla/tsl/framework:device_type.h",
@@ -855,7 +852,7 @@ filegroup(
 
         # Sources for which we already have granular targets.
         "//tensorflow/core/lib/core:mobile_srcs_only_runtime",
-        "@local_tsl//tsl/lib/core:mobile_srcs_only_runtime",
+        "@local_xla//xla/tsl/lib/core:mobile_srcs_only_runtime",
         "//tensorflow/core/lib/gtl:mobile_srcs_only_runtime",
         "//tensorflow/core/lib/hash:mobile_srcs_only_runtime",
         "//tensorflow/core/lib/histogram:mobile_srcs_only_runtime",
@@ -1204,11 +1201,11 @@ filegroup(
         "//tensorflow/core/lib/strings:legacy_lib_strings_all_headers",
         "//tensorflow/core/platform:legacy_lib_internal_headers",
         "//tensorflow/core/platform:lib_internal_private_hdrs",
-        "@local_tsl//tsl/lib/core:legacy_lib_core_all_headers",
         "@local_tsl//tsl/lib/io:legacy_lib_io_all_headers",
         "@local_tsl//tsl/lib/math:math_util.h",
         "@local_tsl//tsl/platform:legacy_lib_internal_headers",
         "@local_tsl//tsl/platform:lib_internal_private_hdrs",
+        "@local_xla//xla/tsl/lib/core:legacy_lib_core_all_headers",
     ] + glob(
         [
             "lib/**/*.h",
@@ -1876,7 +1873,7 @@ tf_cc_tests(
         "//tensorflow/core/lib/monitoring:sampler_test.cc",
         "//tensorflow/core/lib/strings:legacy_low_level_library_tests",
         "//tensorflow/core/lib/wav:wav_io_test.cc",
-        "@local_tsl//tsl/lib/core:legacy_lib_core_all_tests",
+        "@local_xla//xla/tsl/lib/core:legacy_lib_core_all_tests",
     ],
     deps = [
         ":lib",

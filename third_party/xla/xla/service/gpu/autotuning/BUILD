@@ -72,6 +72,7 @@ cc_library(
         "//xla/stream_executor:stream_executor_memory_allocator",
         "//xla/stream_executor/gpu:redzone_allocator",
         "//xla/tools:hlo_decomposer_lib",
+        "//xla/tsl/lib/core:bits",
         "//xla/tsl/util/proto:proto_utils",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -86,7 +87,6 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@local_config_cuda//cuda:cuda_headers",
-        "@local_tsl//tsl/lib/core:bits",
         "@local_tsl//tsl/platform:blocking_counter",
         "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:errors",
@@ -102,15 +102,12 @@ xla_test(
     name = "gemm_fusion_autotuner_test",
     timeout = "long",
     srcs = ["gemm_fusion_autotuner_test.cc"],
-    backend_tags = {"gpu": [
-        "requires-gpu-sm80",
-    ]},
     backends = [
-        "gpu",
+        "gpu_a100",
+        "gpu_h100",
     ],
     tags = [
-        "no_rocm",
-        "nomac",
+        "no_mac",
     ],
     deps = [
         ":autotuner_compile_util",
@@ -235,6 +232,7 @@ cc_library(
         "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
+        "@local_tsl//tsl/platform:mutex",
         "@local_tsl//tsl/platform:path",
         "@local_tsl//tsl/platform:protobuf",
         "@local_tsl//tsl/platform:statusor",
@@ -484,7 +482,6 @@ xla_test(
 tf_proto_library(
     name = "gpu_autotuning_proto",
     srcs = ["gpu_autotuning.proto"],
-    cc_api_version = 2,
     protodeps = [
         "//xla/service/gpu:backend_configs",
         "//xla:xla_data_proto",
