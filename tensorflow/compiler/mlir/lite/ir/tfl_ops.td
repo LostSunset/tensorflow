@@ -1641,6 +1641,7 @@ def TFL_EmbeddingLookupOp: TFL_Op<"embedding_lookup",
     [Pure,
      TFL_OperandHasRank<0, 1>,
      TFL_OperandHasRankAtLeast<1, 2>,
+     AffineQuantizedOpInterface,
      DynamicRangeQuantizedOpInterface,
      QuantizableResult
     ]> {
@@ -1652,7 +1653,7 @@ def TFL_EmbeddingLookupOp: TFL_Op<"embedding_lookup",
 
   let arguments = (ins
     TFL_TensorOf<[I32]>:$lookup,
-    TFL_TensorOf<[F32, I8, UI8, QI4]>:$value
+    TFL_TensorOf<[F32, I8, UI8, QI8, QUI8, QI4]>:$value
    );
 
   let results = (outs TFL_TensorOf<[F32, I8, UI8]>:$output);
@@ -1660,6 +1661,9 @@ def TFL_EmbeddingLookupOp: TFL_Op<"embedding_lookup",
   let hasFolder = 1;
 
   let extraClassDeclaration = [{
+    // AffineQuantizedOpInterface:
+    int GetChannelDimIndex() { return 0; }
+    int GetQuantizationDimIndex() { return 0; }
     // DynamicRangeQuantizedOpInterface:
     std::vector<int> GetQuantizableOperandIndices() { return {1}; }
   }];

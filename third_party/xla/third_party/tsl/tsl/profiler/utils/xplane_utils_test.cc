@@ -392,6 +392,7 @@ TEST(XplaneUtilsTest, FindMutablePlanesWithPredicate) {
   ASSERT_EQ(p1, xplanes[0]);
 }
 
+// Test both step and op level aggregations.
 TEST(XplaneUtilsTest, TestAggregateXPlanes) {
   XPlane xplane;
   XPlaneBuilder builder(&xplane);

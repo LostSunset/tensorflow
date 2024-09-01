@@ -337,6 +337,7 @@ cc_library(
         "//xla/stream_executor/host:host_platform_id",
         "//xla/translate/hlo_to_mhlo:hlo_to_mlir_hlo",
         "//xla/translate/hlo_to_mhlo:hlo_utils",
+        "//xla/tsl/concurrency:async_value",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
@@ -349,6 +350,8 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
+        "@llvm-project//llvm:BitReader",
+        "@llvm-project//llvm:BitWriter",
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:MC",
         "@llvm-project//llvm:Object",
@@ -380,11 +383,15 @@ cc_library(
         "@llvm-project//mlir:Transforms",
         "@llvm-project//mlir:VectorDialect",
         "@local_tsl//tsl/platform:casts",
+        "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:platform_port",
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/platform:threadpool_async_executor",
+        "@local_tsl//tsl/profiler/lib:traceme",
+        "@local_tsl//tsl/profiler/lib:traceme_encode",
         "@local_tsl//tsl/protobuf:error_codes_proto_impl_cc",
     ] + if_llvm_aarch64_available([
         "@llvm-project//llvm:AArch64CodeGen",  # fixdeps: keep
@@ -432,7 +439,6 @@ cc_library(
 tf_proto_library(
     name = "executable_proto",
     srcs = ["executable.proto"],
-    cc_api_version = 2,
     protodeps = [
         ":xla_framework_proto",
         "//xla/service:hlo_proto",
@@ -443,7 +449,6 @@ tf_proto_library(
 tf_proto_library(
     name = "xla_framework_proto",
     srcs = ["xla_framework.proto"],
-    cc_api_version = 2,
 )
 
 cc_library(
@@ -697,6 +702,7 @@ xla_cc_test(
         ":ir_emitter",
         ":ir_emitter2",
         ":target_machine_features_fake",
+        "//xla:cpu_function_runtime",
         "//xla:shape_util",
         "//xla:xla_data_proto_cc",
         "//xla/hlo/ir:hlo",
@@ -712,6 +718,7 @@ xla_cc_test(
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@llvm-project//llvm:Core",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
@@ -985,8 +992,10 @@ cc_library(
         "//xla:util",
         "//xla/service:llvm_compiler",
         "//xla/service/llvm_ir:llvm_util",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/synchronization",
         "@llvm-project//llvm:Analysis",
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:Instrumentation",
@@ -996,6 +1005,7 @@ cc_library(
         "@llvm-project//llvm:Passes",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:Target",
+        "@llvm-project//llvm:TargetParser",
         "@local_tsl//tsl/platform:logging",
     ],
 )
@@ -1707,13 +1717,11 @@ xla_cc_test(
 tf_proto_library(
     name = "onednn_config_proto",
     srcs = ["onednn_config.proto"],
-    cc_api_version = 2,
 )
 
 tf_proto_library(
     name = "backend_config_proto",
     srcs = ["backend_config.proto"],
-    cc_api_version = 2,
     protodeps = [
         ":onednn_config_proto",
     ],
