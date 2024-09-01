@@ -122,6 +122,9 @@ foreach actFnPair = [[TFL_ReluOp, TFL_AF_Relu],
   defm : FuseActFnIntoPoolOpPat<!cast<Op>(actFnPair[0]), !cast<ConstantStrAttr>(actFnPair[1])>;
 }
 
+def GetBiasMultiplier:
+  NativeCodeCall<"GetBiasMultiplier($_builder, $0, $1.cast<DenseFPElementsAttr>())">;
+
 class CanFuseConvOrDepthwiseConv<string is_depthwise> : Constraint<
   CPred<"TFL::CanFuseConvOrDepthwiseConv($0, $1, " # is_depthwise # ")">>;
 
@@ -167,12 +170,15 @@ multiclass FuseBinaryOpToPrecedingAffine<Op binaryOp> {
      (HasOneUse $output)]>;
   // Fuse for TransposeConv with no bias
   def FuseBinaryOpWithTransposeConvNoneBias#binaryOp : Pat<
-    (binaryOp (TFL_TransposeConvOp:$output $output_shape, $weights, $input,
+    (binaryOp:$root (TFL_TransposeConvOp:$output $output_shape, $weights, $input,
                 $bias, $padding,
                 $stride_h, $stride_w, TFL_AF_None),
               (Arith_ConstantOp FloatElementsAttr:$value), $act_fn),
     (TFL_TransposeConvOp $output_shape, $weights, $input,
-      (Arith_ConstantOp $value),
+      (TFL_MulOp  (Arith_ConstantOp $value),
+                  (GetBiasMultiplier $root, $value),
+                  TFL_AF_None
+      ),
       $padding, $stride_h, $stride_w, $act_fn),
     [(CanFuseConvOrDepthwiseConv<"false"> $weights, $value),
      (IsNoneType $bias),
@@ -1772,3 +1778,13 @@ def FuseSamePaddingConv3D : Pat<
     (IsBalancedPaddingArray<1, 4> $paddings),
     (IsValidPadding $padding),
     (IsSameStridedShape3D $conv_out, $input)]>;
+
+// Replace
+//   Gather(Cast(input), indices)
+// With
+//   Cast(Gather(input, indices))
+// This reduces the number of tensor elements that need to be converted.
+def ReorderGatherAndCast : Pat<
+  (TFL_GatherOp (TFL_CastOp:$cast $params), $indices, $axis, $batch_dims),
+  (TFL_CastOp (TFL_GatherOp $params, $indices, $axis, $batch_dims)),
+  [(HasOneUse $cast)]>;

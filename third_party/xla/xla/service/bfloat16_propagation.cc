@@ -953,6 +953,10 @@ absl::StatusOr<bool> BFloat16Propagation::Run(
     computations_visited_in_backward_pass_.insert(*comp_it);
   }
 
+  // We might have propagated type changes partially over an instruction which
+  // does not support mixed precision. Revert such cases.
+  ResolveForSupportOfMixedPrecision();
+
   // It's possible that an instruction does not define a buffer, but the
   // defining instruction's shape has changed. So we need to adjust the output
   // shapes of instructions according to the HLO values they refer to.
@@ -1066,6 +1070,9 @@ void BFloat16Propagation::AddToOrRemoveFromBF16ChangeSet(
     }
     it->second.erase(
         ShapeUtil::GetMutableSubshape(hlo->mutable_shape(), index));
+    if (it->second.empty()) {
+      changes_to_bf16_.erase(it);
+    }
   }
 }
 

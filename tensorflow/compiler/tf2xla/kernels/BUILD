@@ -211,7 +211,6 @@ tf_cuda_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
-        "@local_tsl//tsl/lib/strings:proto_serialization",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:fingerprint",
         "@local_tsl//tsl/platform:statusor",
@@ -223,9 +222,11 @@ tf_cuda_library(
         "@local_xla//xla/service:custom_call_target_registry",
         "@local_xla//xla/service:hlo_proto_cc",
         "@local_xla//xla/stream_executor",
+        "@local_xla//xla/stream_executor:stream_finder",
         "@local_xla//xla/stream_executor/gpu:gpu_executor_header",
         "@local_xla//xla/stream_executor/gpu:gpu_stream_header",
         "@local_xla//xla/stream_executor/gpu:gpu_types_header",
+        "@local_xla//xla/tsl/lib/strings:proto_serialization",
     ],
     alwayslink = 1,
 )
@@ -514,7 +515,6 @@ tf_kernel_library(
 tf_proto_library(
     name = "callback_proto",
     srcs = ["callback.proto"],
-    cc_api_version = 2,
     protodeps = tf_additional_all_protos(),
 )
 
@@ -544,7 +544,9 @@ tf_kernel_library(
         "//tensorflow/compiler/tf2xla:xla_resource",
         "//tensorflow/compiler/tf2xla/ops:xla_ops",
         "//tensorflow/core:framework",
+        "//tensorflow/core:portable_gif_internal",
         "//tensorflow/core:protos_all_cc",
+        "//tensorflow/core/platform:errors",
         "@local_xla//xla:xla_data_proto_cc",
         "@local_xla//xla/client:xla_builder",
     ],
@@ -785,7 +787,10 @@ tf_kernel_library(
         "//tensorflow/compiler/tf2xla:xla_op_registry",
         "//tensorflow/compiler/tf2xla:xla_resource",
         "//tensorflow/compiler/tf2xla/ops:xla_ops",
+        "//tensorflow/core:framework",
         "//tensorflow/core:lib",
+        "@local_xla//xla:shape_util",
+        "@local_xla//xla:xla_data_proto_cc",
         "@local_xla//xla/client/lib:constants",
         "@local_xla//xla/client/lib:slicing",
         "@local_xla//xla/client/lib:svd",
@@ -1392,7 +1397,6 @@ tf_kernel_library(
     name = "xla_reduce_op",
     srcs = ["xla_reduce_op.cc"],
     deps = [
-        "//tensorflow/compiler/tf2xla:common",
         "//tensorflow/compiler/tf2xla:mlir_xla_op_kernel",
         "//tensorflow/compiler/tf2xla:xla_compilation_device",
         "//tensorflow/compiler/tf2xla:xla_compiler",
@@ -1401,11 +1405,6 @@ tf_kernel_library(
         "//tensorflow/compiler/tf2xla:xla_op_registry",
         "//tensorflow/compiler/tf2xla:xla_resource",
         "//tensorflow/compiler/tf2xla/ops:xla_ops",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib",
-        "@com_google_absl//absl/algorithm:container",
-        "@local_xla//xla/client:xla_builder",
-        "@local_xla//xla/client:xla_computation",
     ],
 )
 
@@ -2063,7 +2062,6 @@ tf_kernel_library(
     name = "xla_dequantize_op",
     srcs = ["xla_dequantize_op.cc"],
     deps = [
-        "//tensorflow/compiler/tf2xla:common",
         "//tensorflow/compiler/tf2xla:xla_compilation_device",
         "//tensorflow/compiler/tf2xla:xla_compiler",
         "//tensorflow/compiler/tf2xla:xla_context",
@@ -2072,6 +2070,7 @@ tf_kernel_library(
         "//tensorflow/compiler/tf2xla:xla_resource",
         "//tensorflow/compiler/tf2xla/ops:xla_ops",
         "//tensorflow/core:framework",
+        "//tensorflow/core:portable_gif_internal",
         "@local_xla//xla:xla_data_proto_cc",
         "@local_xla//xla/client:xla_builder",
         "@local_xla//xla/client/lib:quantize",
@@ -2191,9 +2190,11 @@ tf_kernel_library(
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
+        "@com_google_absl//absl/status",
         "@local_xla//xla:shape_util",
         "@local_xla//xla:xla_data_proto_cc",
         "@local_xla//xla/client:xla_builder",
+        "@local_xla//xla/service:hlo_proto_cc",
     ],
 )
 
@@ -2611,7 +2612,6 @@ tf_kernel_library(
     srcs = ["xla_select_and_scatter_op.cc"],
     deps = [
         ":while_op",
-        "//tensorflow/compiler/tf2xla:common",
         "//tensorflow/compiler/tf2xla:mlir_xla_op_kernel",
         "//tensorflow/compiler/tf2xla:xla_compilation_device",
         "//tensorflow/compiler/tf2xla:xla_compiler",
@@ -2620,9 +2620,6 @@ tf_kernel_library(
         "//tensorflow/compiler/tf2xla:xla_op_registry",
         "//tensorflow/compiler/tf2xla:xla_resource",
         "//tensorflow/compiler/tf2xla/ops:xla_ops",
-        "//tensorflow/core:framework",
-        "@local_xla//xla/client:xla_builder",
-        "@local_xla//xla/client:xla_computation",
     ],
 )
 
@@ -2859,7 +2856,8 @@ tf_kernel_library(
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core/tpu:tpu_defs",
+        "@local_tsl//tsl/platform:status",
+        "@local_xla//xla:shape_util",
         "@local_xla//xla:xla_data_proto_cc",
         "@local_xla//xla/client:xla_builder",
     ],
@@ -2876,6 +2874,7 @@ tf_kernel_library(
         "//tensorflow/compiler/tf2xla:xla_op_registry",
         "//tensorflow/compiler/tf2xla:xla_resource",
         "//tensorflow/compiler/tf2xla/ops:xla_ops",
+        "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "@local_xla//xla/client/lib:self_adjoint_eig",
     ],
@@ -2946,7 +2945,6 @@ tf_kernel_library(
     name = "xla_pad_op",
     srcs = ["xla_pad_op.cc"],
     deps = [
-        "//tensorflow/compiler/tf2xla:common",
         "//tensorflow/compiler/tf2xla:xla_compilation_device",
         "//tensorflow/compiler/tf2xla:xla_compiler",
         "//tensorflow/compiler/tf2xla:xla_context",
@@ -2955,8 +2953,10 @@ tf_kernel_library(
         "//tensorflow/compiler/tf2xla:xla_resource",
         "//tensorflow/compiler/tf2xla/ops:xla_ops",
         "//tensorflow/core:framework",
+        "//tensorflow/core/platform:errors",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
+        "@local_xla//xla:xla_data_proto_cc",
         "@local_xla//xla/client:xla_builder",
     ],
 )

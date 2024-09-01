@@ -4,8 +4,8 @@ load("//third_party:repo.bzl", "tf_http_archive")
 
 def repo(name):
     """Imports LLVM."""
-    LLVM_COMMIT = "0c25f85e5b88102363c0cd55e1946053d5827e99"
-    LLVM_SHA256 = "851d958e60193edfb54d6eb8644785179eeb604edae8c026ac1819e82c059f6c"
+    LLVM_COMMIT = "f142f8afe21bceb00fb495468aa0b5043e98c419"
+    LLVM_SHA256 = "f1fb583a7306abdf6282dd88d67f52399a582eaefdf85ec788a2ffee53b0707b"
 
     tf_http_archive(
         name = name,
@@ -22,6 +22,7 @@ def repo(name):
             "//third_party/llvm:mathextras.patch",
             "//third_party/llvm:toolchains.patch",
             "//third_party/llvm:zstd.patch",
+            "//third_party/llvm:rocdl_shuffle_down.patch",
         ],
         link_files = {"//third_party/llvm:run_lit.sh": "mlir/run_lit.sh"},
     )

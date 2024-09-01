@@ -43,6 +43,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_clone_context.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/service/dump.h"
 #include "xla/service/gpu/gpu_asm_opts_util.h"
 #include "xla/service/gpu/stream_executor_util.h"
 #include "xla/shape.h"
@@ -53,10 +54,12 @@ limitations under the License.
 #include "xla/stream_executor/gpu/redzone_allocator.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/util.h"
+#include "xla/xla.pb.h"
 #include "tsl/platform/base64.h"
 #include "tsl/platform/env.h"
 #include "tsl/platform/errors.h"
 #include "tsl/platform/logging.h"
+#include "tsl/platform/mutex.h"
 #include "tsl/platform/path.h"
 #include "tsl/platform/protobuf.h"  // IWYU pragma: keep
 #include "tsl/platform/statusor.h"
@@ -122,13 +125,26 @@ ResultAndInserted AddResultToInMemoryCache(const AutotuneCacheKey& key,
   return {it->second, inserted};
 }
 
-absl::Status AddResultToFileBasedCacheIfEnabled(const AutotuneCacheKey& key,
-                                                AutotuneResult result,
-                                                std::string_view cache_dir)
+// Returns a unique number every time it is called.
+int64_t GetNextUniqueId() {
+  static tsl::mutex mu(tsl::LINKER_INITIALIZED);
+  static int64_t id = 0;
+  tsl::mutex_lock l(mu);
+  return ++id;
+}
+
+absl::Status AddResultToFileBasedCacheIfEnabled(
+    const AutotuneCacheKey& key, AutotuneResult result,
+    std::string_view cache_dir,
+    DebugOptions::AutotuneCacheMode autotune_cache_mode)
     ABSL_LOCKS_EXCLUDED(autotune_cache_mu) {
-  if (cache_dir.empty()) {
+  if (cache_dir.empty() ||
+      autotune_cache_mode == DebugOptions::AUTOTUNE_CACHE_MODE_READ) {
     return absl::OkStatus();
   }
+
+  tsl::Env* default_env = tsl::Env::Default();
+  TF_RETURN_IF_ERROR(CreateDirIfNeeded(std::string(cache_dir), default_env));
 
   TF_ASSIGN_OR_RETURN(const std::string file_path,
                       GetCacheFilePath(cache_dir, key));
@@ -141,24 +157,29 @@ absl::Status AddResultToFileBasedCacheIfEnabled(const AutotuneCacheKey& key,
   }
 
   // Rename trick: Write to a temporary file, then rename it to the final file
-  // to avoid mingled files when multiple processes are writing to the same
+  // to avoid mingled files when multiple threads are writing to the same
   // file. Also avoids reading incomplete files. (This may not work on all file
   // systems.)
-  std::string temp_file_path = tsl::io::GetTempFilename(".textproto");
-  tsl::Env* default_env = tsl::Env::Default();
+  std::string tmp_dir = tsl::io::JoinPath(cache_dir, "tmp");
+  TF_RETURN_IF_ERROR(CreateDirIfNeeded(tmp_dir, default_env));
+  std::string temp_file_path = tsl::io::JoinPath(
+      tmp_dir,
+      absl::StrCat("tmp_per_fusion_cache_", GetNextUniqueId(), ".textproto"));
+
   TF_RETURN_IF_ERROR(
       tsl::WriteStringToFile(default_env, temp_file_path, result_str));
   return default_env->RenameFile(temp_file_path, file_path);
 }
 
-absl::StatusOr<ResultAndInserted> AddResultToCaches(const AutotuneCacheKey& key,
-                                                    AutotuneResult result,
-                                                    std::string_view cache_dir)
+absl::StatusOr<ResultAndInserted> AddResultToCaches(
+    const AutotuneCacheKey& key, AutotuneResult result,
+    std::string_view cache_dir,
+    DebugOptions::AutotuneCacheMode autotune_cache_mode)
     ABSL_LOCKS_EXCLUDED(autotune_cache_mu) {
   ResultAndInserted result_and_inserted = AddResultToInMemoryCache(key, result);
   if (result_and_inserted.inserted) {
     TF_RETURN_IF_ERROR(AddResultToFileBasedCacheIfEnabled(
-        key, result_and_inserted.result, cache_dir));
+        key, result_and_inserted.result, cache_dir, autotune_cache_mode));
   }
   return result_and_inserted;
 }
@@ -362,10 +383,10 @@ absl::StatusOr<std::optional<AutotuneResult>> TryFindInCache(
     ABSL_LOCKS_EXCLUDED(autotune_cache_mu) {
   std::optional<AutotuneResult> opt_result = TryToFindInInMemoryCache(key);
   if (opt_result.has_value()) {
-    if (VLOG_IS_ON(1)) {
-      LOG(INFO) << "In-memory autotune cache hit";
-    } else if (VLOG_IS_ON(2)) {
+    if (VLOG_IS_ON(2)) {
       LOG(INFO) << "In-memory autotune cache hit: key = " << key.ToString();
+    } else if (VLOG_IS_ON(1)) {
+      LOG(INFO) << "In-memory autotune cache hit";
     }
     return opt_result;
   }
@@ -375,18 +396,18 @@ absl::StatusOr<std::optional<AutotuneResult>> TryFindInCache(
   if (opt_result.has_value()) {
     AddResultToInMemoryCache(key, opt_result.value());
 
-    if (VLOG_IS_ON(1)) {
-      LOG(INFO) << "File-based autotune cache hit";
-    } else if (VLOG_IS_ON(2)) {
+    if (VLOG_IS_ON(2)) {
       LOG(INFO) << "File-based autotune cache hit: key = " << key.ToString();
+    } else if (VLOG_IS_ON(1)) {
+      LOG(INFO) << "File-based autotune cache hit";
     }
     return opt_result;
   }
 
-  if (VLOG_IS_ON(1)) {
-    LOG(INFO) << "Autotune cache miss";
-  } else if (VLOG_IS_ON(2)) {
+  if (VLOG_IS_ON(2)) {
     LOG(INFO) << "Autotune cache miss: key = " << key.ToString();
+  } else if (VLOG_IS_ON(1)) {
+    LOG(INFO) << "Autotune cache miss";
   }
   return std::nullopt;
 }
@@ -409,7 +430,8 @@ absl::StatusOr<std::optional<AutotuneResult>> TryFindInCache(
     const AutotuneConfig& config) {
   TF_ASSIGN_OR_RETURN(
       ResultAndInserted result_and_inserted,
-      AddResultToCaches(key, std::move(result), config.autotune_cache_dir()));
+      AddResultToCaches(key, std::move(result), config.autotune_cache_dir(),
+                        config.autotune_cache_mode()));
   return result_and_inserted.inserted;
 }
 
@@ -435,7 +457,8 @@ absl::StatusOr<std::optional<AutotuneResult>> TryFindInCache(
 
   TF_ASSIGN_OR_RETURN(ResultAndInserted result_and_inserted,
                       AddResultToCaches(key, std::move(autotune_result),
-                                        config.autotune_cache_dir()));
+                                        config.autotune_cache_dir(),
+                                        config.autotune_cache_mode()));
   return result_and_inserted.result;
 }
 

@@ -14,7 +14,6 @@ load(
     "//xla/tsl:tsl.bzl",
     "if_cuda_or_rocm",
     "if_google",
-    "if_oss",
     "internal_visibility",
 )
 load("//xla/tsl:tsl.default.bzl", "get_compatible_with_portable", "tsl_pybind_extension")
@@ -428,9 +427,9 @@ cc_library(
         "@local_tsl//tsl/profiler/protobuf:profiled_instructions_proto_cc",
     ] + if_cuda([
         "@local_config_cuda//cuda:cuda_headers",
-        # TODO(b/324133505): remove this dependency after JAX OSS migrates to cuda plugin.
-        "//xla/stream_executor/cuda:cuda_driver",
     ]) + if_rocm([
+        # keep sorted
+        "@local_config_rocm//rocm:hip",
         "@local_config_rocm//rocm:rocm_headers",
     ]) + if_cuda_or_rocm([
         ":py_client_gpu",  # TODO(b/337876408): remove after migration to plugin
@@ -755,11 +754,13 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@nanobind",
         "@local_config_python//:python_headers",  # buildcleaner: keep
+        "//xla:shape_util",
         "//xla:util",
         "//xla/pjrt:exceptions",
         "//xla/pjrt:lru_cache",
         "//xla/pjrt:pjrt_client",
         "//xla/pjrt:pjrt_future",
+        "//xla/pjrt:pjrt_layout",
         "//xla/pjrt:status_casters",
         "//xla/python/ifrt",
         "//xla/tsl/concurrency:ref_count",
@@ -889,7 +890,6 @@ py_strict_test(
 tf_proto_library(
     name = "pytree_proto",
     srcs = ["pytree.proto"],
-    cc_api_version = 2,
     visibility = ["//visibility:public"],
 )
 
@@ -949,6 +949,7 @@ cc_library(
         "@llvm-project//mlir:SparseTensorDialect",
         "@llvm-project//mlir:Support",
         "@nanobind",
+        "@shardy//shardy/dialect/sdy/ir:dialect",
         "@stablehlo//:chlo_ops",
         "@stablehlo//:stablehlo_ops",
         "@stablehlo//:stablehlo_serialization",
@@ -959,7 +960,9 @@ cc_library(
         "//xla/pjrt:mlir_to_hlo",
         "//xla/pjrt:status_casters",
         "//xla/service/llvm_ir:llvm_util",
+        "//xla/service/spmd/shardy/sdy_round_trip:pipelines",
         "//xla/translate/hlo_to_mhlo:hlo_to_mlir_hlo",
+        "//xla/tsl/framework/mlir:status_scoped_diagnostic_handler",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
         "@local_tsl//tsl/platform:statusor",
@@ -1171,7 +1174,7 @@ cc_library(
         "//xla/service:hlo_proto_cc",
         "//xla/service:name_uniquer",
         "//xla/service:tuple_simplifier",
-        "@local_tsl//tsl/lib/strings:proto_serialization",
+        "//xla/tsl/lib/strings:proto_serialization",
         "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:logging",
@@ -1182,7 +1185,6 @@ cc_library(
 tf_proto_library(
     name = "py_host_callback_proto",
     srcs = ["py_host_callback.proto"],
-    cc_api_version = 2,
 )
 
 # If this flag is enabled, it sets RPATH on the xla_extension to values that are suitable for
@@ -1359,12 +1361,12 @@ tsl_pybind_extension(
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform/cloud:gcs_file_system",
     ] + select({
-        # gloo transport only builds on linux
-        "//xla/tsl:macos_arm64": [],
-        "//xla/tsl:macos_x86_64": [
+        # gloo tcp transport only builds on linux
+        "//xla/tsl:macos": [
             "//xla/pjrt/cpu:gloo_collectives",
             "//xla/pjrt/cpu:gloo_kv_store",
-        ] + if_oss(["@gloo//:transport_uv"]),
+            "@gloo//:transport_uv",
+        ],
         "//xla/tsl:windows": [],
         "//conditions:default": [
             "//xla/pjrt/cpu:gloo_collectives",

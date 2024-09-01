@@ -25,6 +25,7 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/algorithm/container.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
@@ -108,6 +109,7 @@ class TritonGemmTest : public TritonTest {
     debug_options.set_xla_gpu_enable_split_k_autotuning(false);
     // Always rewrite Gemms with Triton regardless of size.
     debug_options.set_xla_gpu_gemm_rewrite_size_threshold(0);
+    debug_options.set_xla_gpu_enable_triton_gemm_int4(true);
     return debug_options;
   }
 
@@ -135,6 +137,305 @@ class TritonGemmTestWithoutTritonGemmAny : public TritonGemmTest {
     return debug_options;
   }
 };
+
+TEST_F(TritonGemmTest, LHSInt4WithMinorDimEqualTo1) {
+  // We prove that triton can handle int4 dot with non contracting dim size
+  // equal to 1.
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = s4[16,32,1]{2,1,0} parameter(0)
+      lhs_converted = bf16[16,32,1]{2,1,0} convert(lhs)
+      rhs = bf16[16,64,32]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,1,64]{2,1,0} dot(lhs_converted, rhs),
+          lhs_contracting_dims={1},
+          rhs_contracting_dims={2},
+          lhs_batch_dims={0},
+          rhs_batch_dims={0}
+    }
+
+    ENTRY main {
+      lhs = s4[16,32,1]{2,1,0} parameter(0)
+      rhs = bf16[16,64,32]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,1,64]{2,1,0} fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
+}
+
+TEST_F(TritonGemmTest, RHSInt4WithMinorDimEqualTo1) {
+  // We prove that triton can handle int4 dot with non contracting dim size
+  // equal to 1.
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = bf16[16,32,64]{2,1,0} parameter(0)
+      rhs = s4[16,32,1]{2,1,0} parameter(1)
+      rhs_converted = bf16[16,32,1]{2,1,0} convert(rhs)
+      ROOT dot = bf16[16,64,1]{2,1,0} dot(lhs, rhs_converted),
+          lhs_contracting_dims={1},
+          rhs_contracting_dims={1},
+          lhs_batch_dims={0},
+          rhs_batch_dims={0}
+    }
+
+    ENTRY main {
+      lhs = bf16[16,32,64]{2,1,0} parameter(0)
+      rhs = s4[16,32,1]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,64,1]{2,1,0} fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
+}
+
+TEST_F(TritonGemmTest, LHSInt4NonMinorContractingDim) {
+  // We prove that triton can handle int4 dot with non minor
+  // lhs_contracting_dim.
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = s4[1024,8]{1,0} parameter(0)
+      lhs_converted = bf16[1024,8]{1,0} convert(lhs)
+      rhs = bf16[1024,4]{1,0} parameter(1)
+      ROOT dot = bf16[8,4]{1,0} dot(lhs_converted, rhs),
+          lhs_contracting_dims={0},
+          rhs_contracting_dims={0}
+    }
+
+    ENTRY main {
+      lhs = s4[1024,8]{1,0} parameter(0)
+      rhs = bf16[1024,4]{1,0} parameter(1)
+      ROOT dot = bf16[8,4]{1,0} fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
+}
+
+TEST_F(TritonGemmTest, LHSInt4NonMinorContractingDimWithBatchDim0) {
+  // We prove that triton can handle int4 dot with non minor
+  // lhs_contracting_dim.
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = s4[16,1024,8]{2,1,0} parameter(0)
+      lhs_converted = bf16[16,1024,8]{2,1,0} convert(lhs)
+      rhs = bf16[16,1024,4]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,8,4]{2,1,0} dot(lhs_converted, rhs),
+        lhs_batch_dims={0},
+        lhs_contracting_dims={1},
+        rhs_batch_dims={0},
+        rhs_contracting_dims={1}
+    }
+
+    ENTRY main {
+      lhs = s4[16,1024,8]{2,1,0} parameter(0)
+      rhs = bf16[16,1024,4]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,8,4]{2,1,0} fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
+}
+
+TEST_F(TritonGemmTest, LHSInt4MinorContractingDim) {
+  // We prove that triton can handle int4 dot with minor lhs_contracting_dim.
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = s4[8,1024]{1,0} parameter(0)
+      lhs_converted = bf16[8,1024]{1,0} convert(lhs)
+      rhs = bf16[1024,4]{1,0} parameter(1)
+      ROOT dot = bf16[8,4]{1,0} dot(lhs_converted, rhs),
+        lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    }
+
+    ENTRY main {
+      lhs = s4[8,1024]{1,0} parameter(0)
+      rhs = bf16[1024,4]{1,0} parameter(1)
+      ROOT dot = bf16[8,4]{1,0} fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-2, /*arel=*/1e-2}));
+}
+
+TEST_F(TritonGemmTest, Int4ConvertPlusNegate) {
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = s4[8,1024]{1,0} parameter(0)
+      lhs_converted = bf16[8,1024]{1,0} convert(lhs)
+      lhs_negated = bf16[8,1024]{1,0} negate(lhs_converted)
+      rhs = bf16[1024,4]{1,0} parameter(1)
+      ROOT dot = bf16[8,4]{1,0} dot(lhs_negated, rhs),
+        lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    }
+
+    ENTRY main {
+      lhs = s4[8,1024]{1,0} parameter(0)
+      rhs = bf16[1024,4]{1,0} parameter(1)
+      ROOT dot = bf16[8,4]{1,0} fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-2, /*arel=*/1e-2}));
+}
+
+TEST_F(TritonGemmTest, LHSInt4MinorContractingDimWithBatchDim0) {
+  // We prove that triton can handle int4 dot with minor lhs_contracting_dim.
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = s4[16,8,1024]{2,1,0} parameter(0)
+      lhs_converted = bf16[16,8,1024]{2,1,0} convert(lhs)
+      rhs = bf16[16,1024,4]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,8,4]{2,1,0} dot(lhs_converted, rhs),
+        lhs_batch_dims={0},
+        lhs_contracting_dims={2},
+        rhs_batch_dims={0},
+        rhs_contracting_dims={1}
+    }
+
+    ENTRY main {
+      lhs = s4[16,8,1024]{2,1,0} parameter(0)
+      rhs = bf16[16,1024,4]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,8,4]{2,1,0} fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-2, /*arel=*/1e-2}));
+}
+
+TEST_F(TritonGemmTest, RHSInt4TestWithMinorContractingDim) {
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = bf16[8,1024]{1,0} parameter(0)
+      rhs = s4[1024,4]{1,0} parameter(1)
+      rhs_converted = bf16[1024,4]{1,0} convert(rhs)
+      ROOT dot = bf16[8,4] dot(lhs, rhs_converted),
+          lhs_contracting_dims={1},
+          rhs_contracting_dims={0}
+    }
+
+    ENTRY main {
+      lhs = bf16[8,1024]{1,0} parameter(0)
+      rhs = s4[1024,4]{1,0} parameter(1)
+      ROOT dot = bf16[8,4] fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-2, /*arel=*/1e-2}));
+}
+
+TEST_F(TritonGemmTest, RHSInt4TestWithNotMinorContractingDim) {
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = bf16[8,1024]{1,0} parameter(0)
+      rhs = s4[4,1024]{1,0} parameter(1)
+      rhs_converted = bf16[4,1024]{1,0} convert(rhs)
+      ROOT dot = bf16[8,4] dot(lhs, rhs_converted),
+          lhs_contracting_dims={1},
+          rhs_contracting_dims={1}
+    }
+
+    ENTRY main {
+      lhs = bf16[8,1024]{1,0} parameter(0)
+      rhs = s4[4,1024]{1,0} parameter(1)
+      ROOT dot = bf16[8,4] fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-2, /*arel=*/1e-2}));
+}
+
+TEST_F(TritonGemmTest, RHSInt4TestWithMinorContractingDimWithBatchDim) {
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = bf16[16,8,1024]{2,1,0} parameter(0)
+      rhs = s4[16,1024,4]{2,1,0} parameter(1)
+      rhs_converted = bf16[16,1024,4]{2,1,0} convert(rhs)
+      ROOT dot = bf16[16,8,4] dot(lhs, rhs_converted),
+          lhs_batch_dims={0},
+          lhs_contracting_dims={2},
+          rhs_batch_dims={0},
+          rhs_contracting_dims={1}
+    }
+
+    ENTRY main {
+      lhs = bf16[16,8,1024]{2,1,0} parameter(0)
+      rhs = s4[16,1024,4]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,8,4] fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-2, /*arel=*/1e-2}));
+}
+
+TEST_F(TritonGemmTest, RHSInt4TestWithNotMinorContractingDimWithBatchDim0) {
+  const std::string kHloText = R"(
+    HloModule t
+
+    triton_computation {
+      lhs = bf16[16,8,1024]{2,1,0} parameter(0)
+      rhs = s4[16,4,1024]{2,1,0} parameter(1)
+      rhs_converted = bf16[16,4,1024]{2,1,0} convert(rhs)
+      ROOT dot = bf16[16,8,4] dot(lhs, rhs_converted),
+          lhs_batch_dims={0},
+          lhs_contracting_dims={2},
+          rhs_batch_dims={0},
+          rhs_contracting_dims={2}
+    }
+
+    ENTRY main {
+      lhs = bf16[16,8,1024]{2,1,0} parameter(0)
+      rhs = s4[16,4,1024]{2,1,0} parameter(1)
+      ROOT dot = bf16[16,8,4] fusion(lhs, rhs), kind=kCustom,
+        calls=triton_computation,
+        backend_config={"fusion_backend_config": {"kind":"__triton_gemm"}}
+    }
+  )";
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-2, /*arel=*/1e-2}));
+}
 
 TEST_F(TritonTest, TestGemm) {
   const std::string kHloText = R"(
@@ -1564,7 +1865,7 @@ ENTRY e {
   p0 = bf16[8192,512]{1,0} parameter(0)
   p1 = bf16[512,512]{1,0} parameter(1)
   p2 = bf16[8192,512]{1,0} parameter(2)
-  ROOT fusion = bf16[8192,512]{1,0} fusion(p0,p1,p2), kind=kCustom, calls=triton_computation, 
+  ROOT fusion = bf16[8192,512]{1,0} fusion(p0,p1,p2), kind=kCustom, calls=triton_computation,
   backend_config={"fusion_backend_config":
       {"kind":"__triton_gemm", "triton_gemm_config":{"block_m":"64","block_n":"256","block_k":"32","split_k":"1","num_stages":"4","num_warps":"4","num_ctas":"1"}}}
 })";
@@ -1773,6 +2074,58 @@ ENTRY e {
 )");
 
   EXPECT_TRUE(RunAndCompare(hlo_text, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
+}
+
+TEST_F(TritonGemmTest, BroadcastOfScalarWorksCorrectly) {
+  const std::string kHloText = R"(
+fusion {
+  p0 = f16[2,18] parameter(0)
+  p1 = f16[256,2] parameter(1)
+  d = f16[18,256] dot(p0, p1), lhs_contracting_dims={0}, rhs_contracting_dims={1}
+  p2 = f16[] parameter(2)
+  p3 = f16[] parameter(3)
+  multiply = f16[] multiply(p2, p3)
+  broadcast = f16[18,256] broadcast(multiply), dimensions={}
+  ROOT multiply.3 = f16[18,256] multiply(d, broadcast)
+}
+ENTRY e  {
+  p0 = f16[2,18] parameter(0)
+  p1 = f16[256,2] parameter(1)
+  p2 = f16[] parameter(2)
+  p3 = f16[] parameter(3)
+  ROOT gemm_fusion = f16[18,256]{1,0} fusion(p0, p1, p2, p3), kind=kCustom, calls=fusion, backend_config={"fusion_backend_config":{"kind":"__triton_gemm","triton_gemm_config":{"block_m":"32","block_n":"32","block_k":"16","split_k":"1","num_stages":"1","num_warps":"4","num_ctas":"1"}}}
+})";
+
+  TF_ASSERT_OK(CreateTritonIrAndFileCheckForDot(this, kHloText, "fusion", R"(
+        CHECK:      tt.dot
+        CHECK:      arith.mulf %{{.*}}, %{{.*}} : tensor<f16> 
+        CHECK:      tt.broadcast %{{.*}} : tensor<1x1xf16> -> tensor<32x32xf16>
+        CHECK:      arith.mulf %{{.*}}, %{{.*}} : tensor<32x32xf16>
+    )"));
+  const se::DeviceDescription dev_info =
+      backend().default_stream_executor()->GetDeviceDescription();
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> hlo_module,
+                          ParseAndReturnVerifiedModule(kHloText));
+  const HloFusionInstruction* triton_dot_fusion = Cast<HloFusionInstruction>(
+      hlo_module->entry_computation()->root_instruction());
+  llvm::LLVMContext llvm_ctx;
+  llvm::Module llvm_module("module", llvm_ctx);
+  mlir::MLIRContext mlir_context;
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto gpu_config, triton_dot_fusion->backend_config<GpuBackendConfig>());
+  const FusionBackendConfig& config = gpu_config.fusion_backend_config();
+  auto gemm_config = config.triton_gemm_config();
+  BlockLevelParameters block_level_parameters;
+  block_level_parameters.num_ctas = gemm_config.num_ctas();
+  block_level_parameters.num_warps = gemm_config.num_warps();
+  block_level_parameters.num_stages = gemm_config.num_stages();
+
+  TF_CHECK_OK(TritonWrapper("test_fn", triton_dot_fusion, GpuComputeComp(),
+                            dev_info, block_level_parameters, &llvm_module,
+                            mlir_context)
+                  .status());
 }
 
 class TritonGemmLevel2Test : public TritonGemmTest {
@@ -2558,10 +2911,12 @@ ENTRY e {
 
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           GetOptimizedModule(kHloText));
-  EXPECT_THAT(module->entry_computation()->root_instruction(),
-              GmockMatch(m::Transpose(
-                  m::Fusion(m::Parameter(), m::Parameter())
-                      .WithFusionKind(HloInstruction::FusionKind::kCustom))));
+  EXPECT_THAT(
+      module->entry_computation()->root_instruction(),
+      GmockMatch(m::Bitcast(
+          m::Fusion(m::Fusion(m::Parameter(), m::Parameter())
+                        .WithFusionKind(HloInstruction::FusionKind::kCustom))
+              .WithFusionKind(HloInstruction::FusionKind::kInput))));
 
   EXPECT_TRUE(RunAndCompare(kHloText, ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
 }
@@ -2649,9 +3004,9 @@ TEST_F(TritonGemmTestAny,
 HloModule t
 
 ENTRY e {
-  parameter_0 = f32[32,4000] parameter(0)
-  parameter_1 = f32[32,4000,6400] parameter(1)
-  ROOT dot = f32[32,6400] dot(parameter_0, parameter_1), lhs_batch_dims={0},
+  parameter_0 = f32[1,40] parameter(0)
+  parameter_1 = f32[1,40,250000] parameter(1)
+  ROOT dot = f32[1,250000] dot(parameter_0, parameter_1), lhs_batch_dims={0},
     lhs_contracting_dims={1}, rhs_batch_dims={0}, rhs_contracting_dims={1}
 })";
 
@@ -2671,9 +3026,9 @@ TEST_F(TritonGemmTestAny,
 HloModule t
 
 ENTRY e {
-  parameter_0 = f32[32,4000,6400] parameter(0)
-  parameter_1 = f32[32,4000] parameter(1)
-  ROOT dot = f32[32,6400] dot(parameter_0, parameter_1), lhs_batch_dims={0},
+  parameter_0 = f32[1,40,250000] parameter(0)
+  parameter_1 = f32[1,40] parameter(1)
+  ROOT dot = f32[1,250000] dot(parameter_0, parameter_1), lhs_batch_dims={0},
     lhs_contracting_dims={1}, rhs_batch_dims={0}, rhs_contracting_dims={1}
 })";
 
@@ -4798,7 +5153,7 @@ ENTRY main {
 
   TF_ASSERT_OK(
       CreateTritonIrAndFileCheckForDot(this, hlo_text, "triton_dot", R"(
-CHECK: tt.dot {{.*}}{maxNumImpreciseAcc = 2147483647 : i32} : tensor<128x64xf8E4M3FNUZ> * tensor<64x32xf8E4M3FNUZ> -> tensor<128x32xf32>
+CHECK: tt.dot {{.*}}{maxNumImpreciseAcc = 2147483647 : i32} : tensor<128x64xf8E4M3FN> * tensor<64x32xf8E4M3FN> -> tensor<128x32xf32>
   )"));
 
   EXPECT_TRUE(RunAndCompare(hlo_text, ErrorSpec{/*aabs=*/1.0, /*arel=*/1e-3}));

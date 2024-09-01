@@ -78,6 +78,7 @@ tsl_gpu_library(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/functional:bind_front",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -99,7 +100,6 @@ tf_proto_library(
     name = "test_device_proto",
     testonly = 1,
     srcs = ["test_device.proto"],
-    cc_api_version = 2,
 )
 
 tsl_cc_test(
