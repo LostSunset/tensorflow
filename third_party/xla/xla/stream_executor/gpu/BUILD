@@ -295,7 +295,6 @@ gpu_only_cc_library(
         ":gpu_executor_header",
         ":gpu_types_header",
         "//xla/stream_executor",
-        "//xla/stream_executor:stream_executor_h",
         "@com_google_absl//absl/status:statusor",
         "@local_tsl//tsl/platform:logging",
     ],
@@ -396,6 +395,11 @@ gpu_only_cc_library(
 gpu_only_cc_library(
     name = "gpu_types_header",
     hdrs = ["gpu_types.h"],
+    defines = if_rocm_is_configured([
+        "TENSORFLOW_USE_ROCM=1",
+    ]) + if_sycl_is_configured([
+        "TENSORFLOW_USE_SYCL=1",
+    ]),
     deps = [
         "//xla/stream_executor/platform",
     ] + if_cuda_is_configured([
