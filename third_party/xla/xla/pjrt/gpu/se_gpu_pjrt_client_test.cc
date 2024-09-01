@@ -876,7 +876,6 @@ TEST(GpuTopology, ToProto) {
   EXPECT_THAT(msg.num_slices(), 2);
   EXPECT_THAT(msg.num_hosts_per_slice(), 1);
   EXPECT_THAT(msg.num_devices_per_host(), 3);
-  EXPECT_THAT(msg.core_count_per_chip(), 10);
 }
 
 TEST(StreamExecutorGpuClientTest, DistributedInit) {

@@ -129,7 +129,13 @@ def XLAGPU_PureCallOp : XLAGPU_Op<"pure_call",
       $_state.addOperands(operands);
       $_state.addAttribute("callee", mlir::SymbolRefAttr::get(callee));
       $_state.addTypes(callee.getFunctionType().getResults());
-    }]>];
+    }]>,
+    OpBuilder<(ins "mlir::FlatSymbolRefAttr":$callee, CArg<"mlir::ValueRange", "{}">:$operands, CArg<"llvm::ArrayRef<mlir::Type>", "{}">:$result_types), [{
+      $_state.addOperands(operands);
+      $_state.addAttribute("callee", callee);
+      $_state.addTypes(result_types);
+    }]>,
+    ];
   let assemblyFormat = [{
     $callee `(` $operands `)` attr-dict `:` functional-type($operands, results)
   }];
@@ -273,6 +279,8 @@ def ApplyIndexingOp : XLAGPU_Op<"apply_indexing", [Pure]> {
 
 def LoopOp : XLAGPU_Op<"loop", [
     AttrSizedOperandSegments, Pure,
+    DeclareOpInterfaceMethods<OpAsmOpInterface,
+      ["getAsmBlockArgumentNames", "getAsmResultNames"]>,
     SingleBlockImplicitTerminator<"xla::gpu::YieldOp">
   ]> {
   let summary = "Loop nest that iterates over all feasible values of RangeVars.";
