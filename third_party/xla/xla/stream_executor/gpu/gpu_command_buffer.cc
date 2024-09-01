@@ -956,6 +956,27 @@ absl::Status GpuCommandBuffer::While(ExecutionScopeId execution_scope_id,
 absl::Status GpuCommandBuffer::Finalize() {
   TF_RETURN_IF_ERROR(CheckNotFinalized());
 
+  // Collect number of nodes and conditionals for logging below.
+  size_t num_nodes = 0, num_cond_cmd_buffers = 0;
+  for (auto& [_, execution_scope] : execution_scopes_) {
+    num_nodes += execution_scope.nodes.size();
+    num_cond_cmd_buffers += execution_scope.conditional_command_buffers.size();
+  }
+
+  // TODO(b/362769658): Remove this workaround when cuda supports conditionals
+  // with empty graphs.
+#if !defined(TENSORFLOW_USE_ROCM)
+  if (num_nodes == 0) {
+    GpuGraphNodeHandle empty_node_handle = nullptr;
+    TF_ASSIGN_OR_RETURN(NoOpKernel * noop, GetNoOpKernel());
+
+    TF_RETURN_IF_ERROR(GpuDriver::GraphAddKernelNode(
+        &empty_node_handle, graph_, /*deps=*/{}, "noop",
+        AsGpuKernel(&**noop)->gpu_function(), 1, 1, 1, 1, 1, 1, 0,
+        /*kernel_params=*/nullptr, /*extra=*/nullptr));
+  }
+#endif
+
   // Maybe dump created CUDA graph to a dot file for debugging.
   if (state_ == State::kCreate && VLOG_IS_ON(10)) {
     std::string path = tsl::io::GetTempFilename(/*extension=*/"dot");
@@ -965,13 +986,6 @@ absl::Status GpuCommandBuffer::Finalize() {
       VLOG(100) << "Printed Gpu graph " << graph_ << " to: " << path << "\n"
                 << *printed;
     }
-  }
-
-  // Collect number of nodes and conditionals for logging below.
-  size_t num_nodes = 0, num_cond_cmd_buffers = 0;
-  for (auto& [_, execution_scope] : execution_scopes_) {
-    num_nodes += execution_scope.nodes.size();
-    num_cond_cmd_buffers += execution_scope.conditional_command_buffers.size();
   }
 
   if (mode_ == Mode::kPrimary && state_ == State::kCreate) {
@@ -999,7 +1013,7 @@ absl::Status GpuCommandBuffer::Finalize() {
             "CUDA driver ran out of memory trying to instantiate CUDA graph "
             "with %d nodes and %d conditionals (total of %d alive CUDA graphs "
             "in the process). You can try to (a) Give more memory to CUDA "
-            "driver by reducing XLA_PYTHON_CLIENT_MEM_FRACTION (b) Disable "
+            "driver by reducing XLA_CLIENT_MEM_FRACTION (b) Disable "
             "CUDA graph with 'XLA_FLAGS=--xla_gpu_enable_command_buffer=' "
             "(empty set). Original error: %s",
             num_nodes, num_cond_cmd_buffers, AliveExecs(), retry.message()));
