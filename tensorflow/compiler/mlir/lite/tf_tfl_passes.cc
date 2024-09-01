@@ -31,6 +31,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_tf_xla_call_module_to_stablehlo_pass.h"
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/passes.h"
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/transforms.h"
+#include "tensorflow/compiler/mlir/lite/transforms/optimize_pass_options.h"
 #include "tensorflow/compiler/mlir/lite/transforms/passes.h"
 #include "tensorflow/compiler/mlir/lite/utils/fake_quant_utils.h"
 #include "tensorflow/compiler/mlir/quantization/common/quantization_lib/quantization_config.h"
@@ -567,6 +568,11 @@ void AddPostVariableFreezingTFToTFLConversionPasses(
       pass_manager->addPass(mlir::TFL::CreateReduceTypePrecisionPass());
     }
 
+    // This pass should alway run before the end of the model conversion but
+    // not after the CreateSplitMergedOperandsPass below.
+    if (pass_config.canonicalizing_inf_as_min_max_float)
+      pass_manager->addPass(mlir::TFL::CreateCanonicalizeBoundaryValuePass());
+
     // This pass should be always at the end of the model
     // conversion (even after quantization). Some TFL ops like unidirectional
     // sequence lstm will have stateful operands and some optimization passes
@@ -581,7 +587,12 @@ void AddPostVariableFreezingTFToTFLConversionPasses(
     // model dialect.
     pass_manager->addPass(
         mlir::TFL::CreateInsertCallOnceOpFromSessionInitializerPass());
+  } else {
+    // This pass should alway run before the end of the model conversion.
+    if (pass_config.canonicalizing_inf_as_min_max_float)
+      pass_manager->addPass(mlir::TFL::CreateCanonicalizeBoundaryValuePass());
   }
+
   if (pass_config.unfold_large_splat_constant) {
     pass_manager->addPass(mlir::TFL::CreateUnfoldLargeSplatConstantPass());
   }

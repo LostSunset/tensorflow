@@ -31,25 +31,30 @@ limitations under the License.
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LLVM.h"
+#include "shardy/dialect/sdy/ir/register.h"
 #include "shardy/dialect/sdy/ir/utils.h"
 #include "xla/mlir_hlo/mhlo/IR/hlo_ops.h"
 #include "xla/service/spmd/shardy/constants.h"
 
 namespace xla {
 namespace sdy {
+
 using ::mlir::ArrayRef;
 using ::mlir::Attribute;
 using ::mlir::DictionaryAttr;
 using ::mlir::NamedAttribute;
 using ::mlir::Operation;
 using ::mlir::SmallVector;
+using ::mlir::StringAttr;
 using ::mlir::StringRef;
 using xla::sdy::kFrontendAttributesAttr;
 
 using ::mlir::func::FuncOp;
 
-mlir::StringAttr getStringAttribute(mlir::Attribute attr,
-                                    mlir::OpBuilder& builder) {
+StringAttr getStringAttribute(mlir::Attribute attr, mlir::OpBuilder& builder) {
+  if (auto stringAttr = mlir::dyn_cast<StringAttr>(attr)) {
+    return stringAttr;
+  }
   return builder.getStringAttr(mlir::sdy::attributeToString(attr));
 }
 
@@ -146,9 +151,11 @@ void removeFrontendAttribute(FuncOp funcOp, StringRef attributeName,
 
 void loadAllRequiredDialects(mlir::MLIRContext* context) {
   mlir::DialectRegistry registry;
+  mlir::func::registerAllExtensions(registry);
   registry.insert<mlir::mhlo::MhloDialect>();
+  mlir::sdy::registerAllDialects(registry);
   context->appendDialectRegistry(registry);
-  mlir::sdy::loadAllRequiredDialects(context);
+  context->loadAllAvailableDialects();
 }
 
 }  // namespace sdy

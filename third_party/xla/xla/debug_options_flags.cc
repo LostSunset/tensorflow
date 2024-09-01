@@ -84,6 +84,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_cpu_use_acl(true);
 #endif
   opts.set_xla_cpu_use_thunk_runtime(true);
+  opts.set_xla_cpu_parallel_codegen_split_count(32);
   opts.set_xla_cpu_enable_concurrency_optimized_scheduler(false);
   opts.set_xla_cpu_prefer_vector_width(256);
 
@@ -276,6 +277,9 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_syntax_sugar_async_ops(false);
 
   opts.set_xla_gpu_per_fusion_autotune_cache_dir("");
+
+  opts.set_xla_gpu_experimental_autotune_cache_mode(
+      DebugOptions::AUTOTUNE_CACHE_MODE_UPDATE);
 
   opts.set_xla_gpu_autotune_gemm_rtol(0.1f);
 
@@ -636,6 +640,20 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
         // supported modes.
         return false;
       };
+
+  // Custom "sub-parser" for xla_gpu_experimental_autotune_cache_mode.
+  auto setter_for_xla_gpu_experimental_autotune_cache_mode =
+      [debug_options](const std::string& value) {
+        DebugOptions::AutotuneCacheMode autotune_cache_mode;
+        if (!DebugOptions::AutotuneCacheMode_Parse(value,
+                                                   &autotune_cache_mode)) {
+          return false;
+        }
+        debug_options->set_xla_gpu_experimental_autotune_cache_mode(
+            autotune_cache_mode);
+        return true;
+      };
+
   // Don't use an initializer list for initializing the vector; this would
   // create a temporary copy, and exceeds the stack space when compiling with
   // certain configurations.
@@ -810,6 +828,12 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
                 bool_setter_for(&DebugOptions::set_xla_cpu_use_thunk_runtime),
                 debug_options->xla_cpu_use_thunk_runtime(),
                 "Use Thunk-based runtime for the CPU backend."));
+  flag_list->push_back(tsl::Flag(
+      "xla_cpu_parallel_codegen_split_count",
+      int32_setter_for(&DebugOptions::set_xla_cpu_parallel_codegen_split_count),
+      debug_options->xla_cpu_parallel_codegen_split_count(),
+      "Split LLVM module into at most this many parts before codegen to enable "
+      "parallel compilation for the CPU backend."));
   flag_list->push_back(tsl::Flag(
       "xla_cpu_enable_concurrency_optimized_scheduler",
       bool_setter_for(
@@ -1832,6 +1856,15 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       "version checks must be done by the user (e.g. if you want to use "
       "separate caches for different versions of XLA, please use different "
       "directories). Default: no cache."));
+  flag_list->push_back(tsl::Flag(
+      "xla_gpu_experimental_autotune_cache_mode",
+      setter_for_xla_gpu_experimental_autotune_cache_mode,
+      DebugOptions::AutotuneCacheMode_Name(
+          debug_options->xla_gpu_experimental_autotune_cache_mode()),
+      "Experimental: Specify the behavior of per kernel autotuning "
+      "cache. Supported modes: read (provides readonly access to "
+      "the cache), update (loads if the cache exists, runs autotuning "
+      "and dumps the result otherwise). Default: update."));
   flag_list->push_back(tsl::Flag(
       "xla_enable_command_buffers_during_profiling",
       bool_setter_for(

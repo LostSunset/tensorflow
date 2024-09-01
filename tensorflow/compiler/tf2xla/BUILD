@@ -88,7 +88,6 @@ tf_cc_binary(
 tf_proto_library(
     name = "tf2xla_proto",
     srcs = ["tf2xla.proto"],
-    cc_api_version = 2,
     protodeps = [
         "//tensorflow/core:protos_all",
     ],
@@ -106,7 +105,6 @@ xla_py_proto_library(
 tf_proto_library(
     name = "host_compute_metadata_proto",
     srcs = ["host_compute_metadata.proto"],
-    cc_api_version = 2,
     protodeps = [
         "//tensorflow/core:protos_all",
     ],
@@ -308,7 +306,7 @@ cc_library(
         "@ducc//:fft_wrapper",
         "@eigen_archive//:eigen3",
         "@llvm-project//mlir:TransformUtils",
-        "@local_xla//xla:empty",
+        "@local_xla//xla/tsl:empty",
         "//tensorflow/core/framework:numeric_types",
         "//tensorflow/core/platform:bfloat16",
         "//tensorflow/core/platform:float8",
@@ -376,7 +374,7 @@ cc_library(
 #         "//tensorflow/core/platform:thread_annotations",
 #         "//tensorflow/core/platform:tstring",
 #         "//tensorflow/core/platform:types",
-#         "@local_xla//xla:empty",
+#         "@local_xla//xla/tsl:empty",
 #     ]),
 #     dont_match_regexp = "|".join(["//tensorflow"]),
 #     kind = "cc_library",
