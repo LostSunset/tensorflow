@@ -52,6 +52,7 @@ limitations under the License.
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/NVVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
@@ -73,6 +74,7 @@ limitations under the License.
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/NVVM/NVVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Transforms/Passes.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -299,7 +301,6 @@ MlirFusionEmitterBase::CreateLLVMModule(
                                hlo_module->config().debug_options())) {
     trace = std::make_unique<mlir::interpreter::MlirCompilationTrace>();
   }
-  TF_RET_CHECK(!is_amd) << "Unsupported device type: " << device.name();
   TF_ASSIGN_OR_RETURN(
       auto module, CreateMLIRModule(mlir_context, fusion, entry_function_name,
                                     buffer_assignment));
@@ -314,9 +315,11 @@ MlirFusionEmitterBase::CreateLLVMModule(
   }));
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
+  pm.addNestedPass<mlir::func::FuncOp>(CreatePeelLoopsPass());
   pm.addNestedPass<mlir::func::FuncOp>(CreateLowerXlaGpuLoopsToScfPass());
   pm.addPass(mlir::mhlo::createConvertToSignlessPass());
   pm.addPass(CreatePropagateSliceIndicesPass());
+  pm.addPass(CreateFlattenTensorsPass());
   // We need LICM before unswitching loops, because our loop unswitcher only
   // detects for loops with a single if inside them.
   pm.addPass(mlir::createLoopInvariantCodeMotionPass());
@@ -325,7 +328,6 @@ MlirFusionEmitterBase::CreateLLVMModule(
   // opportunities for LICM. This would not be necessary if LICM also moved
   // instructions over ifs.
   pm.addPass(mlir::createLoopInvariantCodeMotionPass());
-  pm.addPass(CreateFlattenTensorsPass());
   pm.addNestedPass<mlir::func::FuncOp>(CreateVectorizeLoadsAndStoresPass());
   pm.addNestedPass<mlir::func::FuncOp>(CreateOptimizeLoopsPass());
   pm.addNestedPass<mlir::func::FuncOp>(CreateConvertPureCallOpsPass());
@@ -353,7 +355,7 @@ MlirFusionEmitterBase::CreateLLVMModule(
       !device.cuda_compute_capability().IsAtLeastAmpere()));
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(mlir::createConvertSCFToCFPass());
-  pm.addPass(CreateLowerToLLVMPass());
+  pm.addPass(CreateLowerToLLVMPass(is_amd));
   pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
   auto pipeline_status = RunPassPipeline(module.get(), pm, trace.get());
@@ -383,13 +385,14 @@ MlirFusionEmitterBase::CreateMLIRModule(
                       mlir::math::MathDialect, mlir::scf::SCFDialect,
                       mlir::mhlo::MhloDialect, mlir::gpu::GPUDialect,
                       mlir::vector::VectorDialect, mlir::NVVM::NVVMDialect,
-                      xla::gpu::XlaGpuDialect>();
+                      mlir::ROCDL::ROCDLDialect, xla::gpu::XlaGpuDialect>();
   mlir::DialectRegistry registry;
   mlir::LLVM::registerInlinerInterface(registry);
   mlir::func::registerInlinerExtension(registry);
   mlir::registerBuiltinDialectTranslation(registry);
   mlir::registerLLVMDialectTranslation(registry);
   mlir::registerNVVMDialectTranslation(registry);
+  mlir::registerROCDLDialectTranslation(registry);
   context.appendDialectRegistry(registry);
 
   mlir::OpBuilder builder(&context);
@@ -472,17 +475,6 @@ MlirFusionEmitterBase::CreateMLIRModule(
   TF_RETURN_IF_ERROR(RunPassPipeline(module.get(), pm, trace));
 
   return module;
-}
-
-SmallVector<Value> MlirFusionEmitterBase::EmitThreadLoopNest(
-    mlir::ImplicitLocOpBuilder& b, ValueRange outputs,
-    const IndexingMap& indexing_map,
-    const std::function<
-        SmallVector<Value>(ValueRange outputs_tensors, ValueRange dim_values,
-                           ValueRange symbol_values)>& create_body,
-    bool vectorize) const {
-  return mlir_converter::EmitLoopNest(b, EmitThreadAndBlockIds(b), outputs,
-                                      indexing_map, create_body, vectorize);
 }
 
 absl::Status MlirFusionEmitterBase::EmitMlir(
