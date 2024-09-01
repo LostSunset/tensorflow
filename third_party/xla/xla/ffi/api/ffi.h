@@ -719,6 +719,10 @@ XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(int8_t, XLA_FFI_DataType_S8);
 XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(int16_t, XLA_FFI_DataType_S16);
 XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(int32_t, XLA_FFI_DataType_S32);
 XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(int64_t, XLA_FFI_DataType_S64);
+XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(uint8_t, XLA_FFI_DataType_U8);
+XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(uint16_t, XLA_FFI_DataType_U16);
+XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(uint32_t, XLA_FFI_DataType_U32);
+XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(uint64_t, XLA_FFI_DataType_U64);
 XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(float, XLA_FFI_DataType_F32);
 XLA_FFI_REGISTER_ARRAY_ATTR_DECODING(double, XLA_FFI_DataType_F64);
 
@@ -916,8 +920,6 @@ struct CtxDecoding<PlatformStream<T>> {
 // the particular call to FFI handler.
 class ScratchAllocator {
  public:
-  ScratchAllocator(const XLA_FFI_Api* api, XLA_FFI_ExecutionContext* ctx,
-                   DiagnosticEngine& diagnostic);
   ~ScratchAllocator();
 
   ScratchAllocator(ScratchAllocator&&) = default;
@@ -926,6 +928,11 @@ class ScratchAllocator {
   std::optional<void*> Allocate(size_t size, size_t alignment = 1);
 
  private:
+  friend struct CtxDecoding<ScratchAllocator>;
+
+  ScratchAllocator(const XLA_FFI_Api* api, XLA_FFI_ExecutionContext* ctx,
+                   DiagnosticEngine& diagnostic);
+
   struct Allocation {
     size_t size;
     void* data;
@@ -992,6 +999,73 @@ inline ScratchAllocator::~ScratchAllocator() {
     }
   }
 }
+
+//===----------------------------------------------------------------------===//
+// ThreadPool
+//===----------------------------------------------------------------------===//
+
+class ThreadPool {
+ public:
+  template <typename F>
+  void Schedule(F&& f) {
+    XLA_FFI_Task* task = +[](void* data) {
+      auto* f = reinterpret_cast<F*>(data);
+      (*f)();
+      delete f;
+    };
+
+    F* data = new F(std::forward<F>(f));
+
+    XLA_FFI_ThreadPool_Schedule_Args args;
+    args.struct_size = XLA_FFI_ThreadPool_Schedule_Args_STRUCT_SIZE;
+    args.extension_start = nullptr;
+    args.ctx = ctx_;
+    args.task = task;
+    args.data = data;
+
+    if (XLA_FFI_Error* error = api_->XLA_FFI_ThreadPool_Schedule(&args)) {
+      diagnostic_.Emit("Failed to schedule task on a thread pool: ")
+          << internal::GetErrorMessage(api_, error);
+      internal::DestroyError(api_, error);
+
+      // If thread pool is not available, we execute the task in the caller
+      // thread. We choose not to return error from `Schedule` for consistency
+      // with Eigen thread pool implementation, and because it would make
+      // recursive work scheduling more difficult.
+      task(data);
+    }
+  }
+
+ private:
+  friend struct CtxDecoding<ThreadPool>;
+
+  ThreadPool(const XLA_FFI_Api* api, XLA_FFI_ExecutionContext* ctx,
+             DiagnosticEngine& diagnostic);
+
+  const XLA_FFI_Api* api_;
+  XLA_FFI_ExecutionContext* ctx_;
+  DiagnosticEngine& diagnostic_;
+};
+
+// Context decoding for thread pool.
+//
+// Example: Ffi::Bind().Ctx<ThreadPool>()
+//                     .To([](ThreadPool thread_pool) { ... });
+template <>
+struct CtxDecoding<ThreadPool> {
+  using Type = ThreadPool;
+
+  static std::optional<Type> Decode(const XLA_FFI_Api* api,
+                                    XLA_FFI_ExecutionContext* ctx,
+                                    DiagnosticEngine& diagnostic) {
+    return ThreadPool(api, ctx, diagnostic);
+  }
+};
+
+inline ThreadPool::ThreadPool(const XLA_FFI_Api* api,
+                              XLA_FFI_ExecutionContext* ctx,
+                              DiagnosticEngine& diagnostic)
+    : api_(api), ctx_(ctx), diagnostic_(diagnostic) {}
 
 //===----------------------------------------------------------------------===//
 // Type Registration
